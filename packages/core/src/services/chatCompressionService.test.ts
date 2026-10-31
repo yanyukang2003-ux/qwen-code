@@ -4452,6 +4452,24 @@ describe('issue #9455: compression requests fit the receiving window', () => {
     );
   });
 
+  it('sends no third request when the retry sized from the rejection overruns too', async () => {
+    // The rejection names a 32K window but the server takes 30K, so the
+    // output-only retry it sizes overruns again. The second rejection still
+    // leaves room to cut the input, and the reduced request would fit 30K,
+    // but a rejection gets one retry: compression stops at two requests.
+    mockBackend({ window: 30_000, rejection: openAiRejection(32_768) });
+
+    const result = await compressHistory(toolSession(6, 12_000), 40_000);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.contents).toEqual(sent[0]!.contents);
+    expect(sent[1]!.maxOutputTokens).toBeLessThan(sent[0]!.maxOutputTokens);
+    expectNoNewHistory(
+      result,
+      CompressionStatus.COMPRESSION_FAILED_INPUT_TOO_LARGE,
+    );
+  });
+
   it('does not retry errors other than a context overflow', async () => {
     mockBackend({
       alwaysReject: true,
